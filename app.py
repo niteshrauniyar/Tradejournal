@@ -236,5 +236,6 @@ elif menu == "📅 Trade Vault":
     st.title("Trade Vault")
     df = load_trades()
     
-    if not df
+    if not df.empty:
+        
     

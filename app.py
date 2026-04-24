@@ -1,25 +1,25 @@
 import streamlit as st
 import pandas as pd
 import sqlite3
-from datetime import datetime, date, timedelta
+from datetime import datetime, date
 import plotly.express as px
 import plotly.graph_objects as go
+import random
 import base64
 
 # =========================
-# ⚙️ CONFIG & PREMIUM STYLING
+# ⚙️ CONFIG & PREMIUM UI
 # =========================
-st.set_page_config(page_title="Trading Journal Pro Max", layout="wide", page_icon="⚡")
+st.set_page_config(page_title="Trading Journal Pro Max", layout="wide", page_icon="📈")
 
+# Premium Glassmorphism CSS
 st.markdown("""
     <style>
-    /* Premium Dark Mode & Glassmorphism */
     .stApp { background-color: #0b0f19; color: #ffffff; }
-    div[data-testid="stMetricValue"] { color: #00e676; }
-    .css-1r6slb0 { background-color: #151a28; border-radius: 12px; border: 1px solid #2a3143; padding: 20px; }
-    div[data-testid="stForm"] { background-color: #151a28; border: 1px solid #2a3143; border-radius: 12px; }
-    hr { border-color: #2a3143; }
-    .stButton>button { border-radius: 8px; font-weight: bold; }
+    .stMetric { background-color: #161b28; padding: 15px; border-radius: 12px; border: 1px solid #2a3143; }
+    div[data-testid="stForm"] { background-color: #161b28; border: 1px solid #2a3143; border-radius: 12px; }
+    .stButton>button { border-radius: 8px; font-weight: bold; width: 100%; }
+    .stTab { background-color: transparent !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -34,23 +34,52 @@ def get_conn():
 def init_db():
     conn = get_conn()
     c = conn.cursor()
+    # Expanded Trade Table
     c.execute("""
     CREATE TABLE IF NOT EXISTS trades (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         trade_date TEXT, symbol TEXT, direction TEXT,
         entry REAL, exit REAL, stop_loss REAL, qty INTEGER,
         timeframe TEXT, setup TEXT, notes TEXT, screenshot TEXT,
-        liq_hunt INTEGER, killzone INTEGER, followed_sl INTEGER, 
-        followed_plan INTEGER, emotional_entry INTEGER, no_revenge INTEGER,
-        pnl REAL, r_multiple REAL, rule_score REAL
+        liq_hunt INTEGER, engulfing INTEGER, killzone INTEGER,
+        trend INTEGER, risk_defined INTEGER, no_revenge INTEGER,
+        followed_sl INTEGER, followed_plan INTEGER, emotional_entry INTEGER,
+        pnl REAL, r_multiple REAL, rule_score REAL, status TEXT
     )""")
+    # Original Daily Checks Table
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS daily_checks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        day TEXT, rules_followed INTEGER, revenge INTEGER,
+        risk INTEGER, overtrade INTEGER, score REAL
+    )""")
+    # Original Account Table
+    c.execute("CREATE TABLE IF NOT EXISTS account (id INTEGER PRIMARY KEY, balance REAL)")
     conn.commit()
     conn.close()
 
 init_db()
 
 # =========================
-# 📊 DATA HELPERS & CALCULATIONS
+# 💰 ACCOUNT FUNCTIONS
+# =========================
+def get_balance():
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT balance FROM account WHERE id=1")
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else 0
+
+def set_balance(val):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("INSERT OR REPLACE INTO account (id, balance) VALUES (1, ?)", (val,))
+    conn.commit()
+    conn.close()
+
+# =========================
+# 📊 DATA HELPERS
 # =========================
 def load_trades():
     conn = get_conn()
@@ -58,11 +87,8 @@ def load_trades():
     conn.close()
     if not df.empty:
         df['trade_date'] = pd.to_datetime(df['trade_date'])
-        df = df.sort_values('trade_date').reset_index(drop=True)
-        # Advanced Metrics Math
+        df = df.sort_values('trade_date')
         df['cum_pnl'] = df['pnl'].cumsum()
-        df['peak'] = df['cum_pnl'].cummax()
-        df['drawdown'] = df['cum_pnl'] - df['peak']
     return df
 
 def encode_image(upload):
@@ -70,192 +96,182 @@ def encode_image(upload):
         return base64.b64encode(upload.read()).decode()
     return ""
 
+def quote():
+    return random.choice([
+        "Discipline is the edge that no one can copy.",
+        "Consistency beats intensity.",
+        "Protect capital first, profits follow.",
+        "Execution is everything."
+    ])
+
 # =========================
 # 🧭 SIDEBAR NAVIGATION
 # =========================
-with st.sidebar:
-    st.title("⚡ Pro Terminal")
-    menu = st.radio("Navigation", ["📊 Dashboard", "➕ Log Trade", "📅 Trade Vault", "⚙️ System"])
-    st.markdown("---")
-    st.markdown("### 💡 Daily Edge")
-    st.info("Amateurs focus on how much they can make. Professionals focus on how much they can lose.")
+st.sidebar.title("📊 Journal Pro Max")
+menu = st.sidebar.radio(
+    "Navigation",
+    ["Dashboard", "Add Trade", "Trade Vault", "Calendar", "Discipline Check", "Account", "Analytics"]
+)
+st.sidebar.markdown("---")
+st.sidebar.info(f"**Focus:** {quote()}")
 
 # =========================
-# 📊 DASHBOARD (POWER UI)
+# 📊 DASHBOARD (Advanced)
 # =========================
-if menu == "📊 Dashboard":
-    st.title("Terminal Dashboard")
+if menu == "Dashboard":
+    st.title("Performance Terminal")
     df = load_trades()
     
     if not df.empty:
-        # --- GLOBAL FILTERS ---
-        st.markdown("### 🔍 Filters")
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            date_range = st.date_input("Date Range", [df['trade_date'].min().date(), date.today()])
-        with c2:
-            setup_filter = st.multiselect("Setup Filter", df['setup'].unique(), default=df['setup'].unique())
-        with c3:
-            symbol_filter = st.multiselect("Symbol Filter", df['symbol'].unique(), default=df['symbol'].unique())
-            
-        # Apply Filters
-        if len(date_range) == 2:
-            mask = (df['trade_date'].dt.date >= date_range[0]) & (df['trade_date'].dt.date <= date_range[1]) & \
-                   (df['setup'].isin(setup_filter)) & (df['symbol'].isin(symbol_filter))
-            filtered_df = df.loc[mask]
-        else:
-            filtered_df = df
-
-        if not filtered_df.empty:
-            # --- ADVANCED METRICS ---
-            st.markdown("---")
-            m1, m2, m3, m4, m5 = st.columns(5)
-            
-            total_pnl = filtered_df['pnl'].sum()
-            win_rate = (len(filtered_df[filtered_df['pnl'] > 0]) / len(filtered_df)) * 100
-            
-            gross_profit = filtered_df[filtered_df['pnl'] > 0]['pnl'].sum()
-            gross_loss = abs(filtered_df[filtered_df['pnl'] < 0]['pnl'].sum())
-            profit_factor = (gross_profit / gross_loss) if gross_loss != 0 else float('inf')
-            
-            max_dd = filtered_df['drawdown'].min()
-            
-            m1.metric("Net PnL", f"${total_pnl:,.2f}")
-            m2.metric("Win Rate", f"{win_rate:.1f}%")
-            m3.metric("Profit Factor", f"{profit_factor:.2f}")
-            m4.metric("Max Drawdown", f"${max_dd:,.2f}")
-            m5.metric("Avg Score", f"{filtered_df['rule_score'].mean():.0f}%")
-
-            # --- CHARTS ---
-            st.markdown("---")
-            tab1, tab2, tab3 = st.tabs(["📈 Equity & Drawdown", "🎯 Setup Edge", "📅 Daily Heat"])
-            
-            with tab1:
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(x=filtered_df['trade_date'], y=filtered_df['cum_pnl'], 
-                                         mode='lines', name='Equity', line=dict(color='#00e676', width=3), shape='hv'))
-                fig.add_trace(go.Scatter(x=filtered_df['trade_date'], y=filtered_df['drawdown'], 
-                                         mode='lines', fill='tozeroy', name='Drawdown', line=dict(color='#ff1744', width=1), shape='hv'))
-                fig.update_layout(title="Equity Curve vs Drawdown", template="plotly_dark", hovermode="x unified", margin=dict(l=0, r=0, t=40, b=0))
-                st.plotly_chart(fig, use_container_width=True)
-                
-            with tab2:
-                setup_stats = filtered_df.groupby('setup').agg(
-                    Trades=('id', 'count'), PnL=('pnl', 'sum'), Win_Rate=('pnl', lambda x: (x>0).mean()*100)
-                ).reset_index()
-                
-                c_a, c_b = st.columns(2)
-                with c_a:
-                    fig_bar = px.bar(setup_stats, x='setup', y='PnL', color='PnL', title="Net PnL by Setup", color_continuous_scale="RdYlGn")
-                    st.plotly_chart(fig_bar, use_container_width=True)
-                with c_b:
-                    fig_pie = px.pie(setup_stats, names='setup', values='Trades', hole=0.4, title="Trade Distribution")
-                    st.plotly_chart(fig_pie, use_container_width=True)
-                    
-            with tab3:
-                filtered_df['Day'] = filtered_df['trade_date'].dt.day_name()
-                day_stats = filtered_df.groupby('Day')['pnl'].sum().reindex(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']).reset_index()
-                fig_day = px.bar(day_stats, x='Day', y='pnl', title="PnL by Day of Week", color='pnl', color_continuous_scale="RdYlGn")
-                st.plotly_chart(fig_day, use_container_width=True)
-
-        else:
-            st.warning("No trades match your filters.")
-    else:
-        st.info("Your dashboard is empty. Go log your first trade!")
-
-# =========================
-# ➕ LOG TRADE (WITH IMAGES)
-# =========================
-elif menu == "➕ Log Trade":
-    st.title("Log Execution")
-    
-    with st.form("trade_entry", clear_on_submit=True):
-        st.subheader("Trade Details")
         c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            t_date = st.date_input("Date", date.today())
-            symbol = st.text_input("Ticker", "NQ")
-        with c2:
-            direction = st.selectbox("Type", ["Buy", "Sell"])
-            qty = st.number_input("Size", value=1.0, step=0.1)
-        with c3:
-            entry = st.number_input("Entry", format="%.4f")
-            exit_p = st.number_input("Exit", format="%.4f")
-        with c4:
-            stop_loss = st.number_input("Stop Loss", format="%.4f")
-            setup = st.selectbox("Setup", ["MSS + FVG", "Silver Bullet", "Liquidity Sweep", "Trend Continuation", "Other"])
-
-        st.markdown("---")
-        st.subheader("Execution Quality & Proof")
-        col_img, col_rules = st.columns([1, 2])
+        win_rate = (len(df[df.pnl > 0]) / len(df) * 100)
         
-        with col_img:
-            screenshot = st.file_uploader("Upload Chart Screenshot", type=["png", "jpg", "jpeg"])
-            
-        with col_rules:
-            r1, r2 = st.columns(2)
-            with r1:
-                liq = st.checkbox("✅ Liquidity Hunted?")
-                kill = st.checkbox("✅ Within Killzone?")
-                plan = st.checkbox("✅ Followed Plan?")
-            with r2:
-                sl_rule = st.checkbox("✅ Respected Stop Loss?")
-                emotional = st.checkbox("❌ Emotional Entry?")
-                revenge = st.checkbox("❌ Revenge Trade?")
+        c1.metric("Total PnL", f"${df['pnl'].sum():,.2f}")
+        c2.metric("Win Rate", f"{win_rate:.1f}%")
+        c3.metric("Avg R-Multiple", f"{df['r_multiple'].mean():.2f}R")
+        c4.metric("Rule Score", f"{df['rule_score'].mean():.1f}%")
 
-        notes = st.text_area("Trade Review / Narrative", placeholder="Why did you take this trade? What did you feel?")
-        
-        submit = st.form_submit_button("💾 Save Trade to Vault", use_container_width=True)
+        fig = px.area(df, x="trade_date", y="cum_pnl", title="Equity Curve ($)", 
+                      line_shape="hv", color_discrete_sequence=['#00e676'])
+        fig.update_layout(template="plotly_dark")
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No trades logged yet.")
+
+# =========================
+# ➕ ADD TRADE (With R:R & Image)
+# =========================
+elif menu == "Add Trade":
+    st.title("➕ Log Execution")
+    with st.form("trade_form", clear_on_submit=True):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            trade_date = str(date.today())
+            symbol = st.text_input("Symbol", "MNQ")
+            direction = st.selectbox("Direction", ["Buy", "Sell"])
+        with col2:
+            entry = st.number_input("Entry Price", format="%.2f")
+            stop_loss = st.number_input("Stop Loss", format="%.2f")
+            exit_price = st.number_input("Exit Price", format="%.2f")
+        with col3:
+            qty = st.number_input("Qty", value=1)
+            setup = st.selectbox("Setup", ["MSS+FVG", "Silver Bullet", "Liq Sweep", "Other"])
+            screenshot = st.file_uploader("Upload Chart", type=['png','jpg','jpeg'])
+
+        st.subheader("📌 ICT & Discipline Rules")
+        r1, r2, r3 = st.columns(3)
+        with r1:
+            liq = st.checkbox("Liquidity Hunt")
+            eng = st.checkbox("Engulfing/MSS")
+            kill = st.checkbox("Killzone Active")
+        with r2:
+            trend = st.checkbox("Trend Aligned")
+            risk_d = st.checkbox("Risk Defined")
+            plan = st.checkbox("Followed Plan")
+        with r3:
+            sl_f = st.checkbox("Followed SL")
+            rev = st.checkbox("No Revenge")
+            emot = st.checkbox("Emotional Entry")
+
+        notes = st.text_area("Notes")
+        submit = st.form_submit_button("Save Trade")
 
         if submit:
-            img_b64 = encode_image(screenshot)
+            pnl = (exit_price - entry) * qty if direction == "Buy" else (entry - exit_price) * qty
+            risk_amt = abs(entry - stop_loss)
+            r_multiple = pnl / (risk_amt * qty) if risk_amt != 0 else 0
             
-            pnl = (exit_p - entry) * qty if direction == "Buy" else (entry - exit_p) * qty
-            risk_per_unit = abs(entry - stop_loss)
-            r_multiple = pnl / (risk_per_unit * qty) if risk_per_unit != 0 else 0
+            # Rule scoring
+            rules = [liq, eng, kill, trend, risk_d, plan, sl_f, rev, (not emot)]
+            rule_score = (sum(rules) / len(rules)) * 100
             
-            pos_rules = [liq, kill, plan, sl_rule]
-            neg_rules = [emotional, revenge]
-            score = (sum(pos_rules) + (2 - sum(neg_rules))) / 6 * 100
-
+            img_str = encode_image(screenshot)
+            
             conn = get_conn()
             c = conn.cursor()
-            c.execute("""INSERT INTO trades 
-                         (trade_date, symbol, direction, entry, exit, stop_loss, qty, timeframe, setup, notes, screenshot, 
-                         liq_hunt, killzone, followed_sl, followed_plan, emotional_entry, no_revenge, pnl, r_multiple, rule_score) 
-                         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", 
-                      (str(t_date), symbol, direction, entry, exit_p, stop_loss, qty, "N/A", setup, notes, img_b64, 
-                       int(liq), int(kill), int(sl_rule), int(plan), int(emotional), int(not revenge), pnl, r_multiple, score))
+            c.execute("""INSERT INTO trades (trade_date, symbol, direction, entry, exit, stop_loss, qty, setup, notes, screenshot, liq_hunt, engulfing, killzone, trend, risk_defined, followed_plan, followed_sl, no_revenge, emotional_entry, pnl, r_multiple, rule_score, status) 
+                         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                      (trade_date, symbol, direction, entry, exit_price, stop_loss, qty, setup, notes, img_str, int(liq), int(eng), int(kill), int(trend), int(risk_d), int(plan), int(sl_f), int(rev), int(emot), pnl, r_multiple, rule_score, "PASS" if rule_score >= 80 else "FAIL"))
             conn.commit()
-            st.success(f"Trade Logged Successfully! Recorded PnL: ${pnl:.2f} | Edge Score: {score:.0f}%")
+            st.success(f"Trade Saved! Result: ${pnl:.2f} ({r_multiple:.2f}R)")
 
 # =========================
-# 📅 TRADE VAULT (HISTORY & IMAGES)
+# 📅 TRADE VAULT (Visual History)
 # =========================
-elif menu == "📅 Trade Vault":
-    st.title("Trade Vault")
+elif menu == "Trade Vault":
+    st.title("📅 Trade Vault")
     df = load_trades()
-    
-    if not df.empty:  # <--- The colon and .empty go here!
-        # Display latest trades in expanders so we can see screenshots
-        for _, row in df.sort_values("trade_date", ascending=False).iterrows():
-            color = "🟢" if row['pnl'] > 0 else "🔴"
-            with st.expander(f"{color} {row['trade_date'].strftime('%Y-%m-%d')} | {row['symbol']} {row['direction']} | PnL: ${row['pnl']:.2f} | Score: {row['rule_score']:.0f}%"):
-                sc1, sc2 = st.columns([2, 1])
-                with sc1:
-                    st.markdown(f"**Setup:** {row['setup']} | **R-Multiple:** {row['r_multiple']:.2f}R")
-                    st.markdown(f"**Entry:** {row['entry']} | **Exit:** {row['exit']} | **Stop:** {row['stop_loss']}")
-                    st.markdown(f"**Notes:** {row['notes']}")
-                with sc2:
+    if not df.empty:
+        for _, row in df.sort_values('trade_date', ascending=False).iterrows():
+            with st.expander(f"{row['trade_date'].date()} | {row['symbol']} {row['direction']} | PnL: ${row['pnl']:.2f}"):
+                c_left, c_right = st.columns([1, 1])
+                with c_left:
+                    st.write(f"**Setup:** {row['setup']} | **Score:** {row['rule_score']}%")
+                    st.write(f"**Notes:** {row['notes']}")
+                with c_right:
                     if row['screenshot']:
-                        try:
-                            # Decode and display image
-                            img_data = base64.b64decode(row['screenshot'])
-                            st.image(img_data, caption="Execution Chart", use_container_width=True)
-                        except:
-                            st.error("Image decode failed.")
-                    else:
-                        st.info("No screenshot uploaded.")
-    else:
-        st.warning("No trades in the vault.")
+                        st.image(base64.b64decode(row['screenshot']))
+    else: st.info("Vault is empty.")
+
+# =========================
+# 📅 CALENDAR (Original)
+# =========================
+elif menu == "Calendar":
+    st.title("📅 PnL Calendar")
+    df = load_trades()
+    if not df.empty:
+        daily = df.groupby("trade_date").agg({"pnl": "sum", "id": "count"}).reset_index()
+        fig = px.bar(daily, x="trade_date", y="pnl", color="pnl", color_continuous_scale="RdYlGn")
+        st.plotly_chart(fig, use_container_width=True)
+        st.dataframe(daily)
+
+# =========================
+# 🧠 DISCIPLINE (Original)
+# =========================
+elif menu == "Discipline Check":
+    st.title("🧠 Daily Discipline")
+    with st.form("daily"):
+        day = str(date.today())
+        a = st.radio("Followed rules?", ["Yes", "No"])
+        b = st.radio("Revenge trades?", ["No", "Yes"])
+        c = st.radio("Risk respected?", ["Yes", "No"])
+        d = st.radio("Overtraded?", ["No", "Yes"])
+        if st.form_submit_button("Save"):
+            score = 100
+            if a == "No": score -= 30
+            if b == "Yes": score -= 30
+            if c == "No": score -= 20
+            if d == "Yes": score -= 20
+            conn = get_conn(); c = conn.cursor()
+            c.execute("INSERT INTO daily_checks (day, rules_followed, revenge, risk, overtrade, score) VALUES (?,?,?,?,?,?)", (day, a=="Yes", b=="Yes", c=="Yes", d=="Yes", score))
+            conn.commit(); st.success(f"Score: {score}")
+
+# =========================
+# 💰 ACCOUNT (Original)
+# =========================
+elif menu == "Account":
+    st.title("💰 Account")
+    bal = get_balance()
+    st.metric("Current Balance", f"${bal:,.2f}")
+    add = st.number_input("Deposit / Withdrawal")
+    if st.button("Update"):
+        set_balance(bal + add)
+        st.rerun()
+
+# =========================
+# 📊 ANALYTICS (Advanced)
+# =========================
+elif menu == "Analytics":
+    st.title("📊 Advanced Analytics")
+    df = load_trades()
+    if not df.empty:
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.plotly_chart(px.histogram(df, x="pnl", title="PnL Distribution"), use_container_width=True)
+        with col_b:
+            st.plotly_chart(px.box(df, x="setup", y="pnl", title="PnL by Setup Type"), use_container_width=True)
         
+        st.subheader("Strategy Efficiency")
+        efficiency = df.groupby('setup').agg({'pnl': 'sum', 'id': 'count', 'r_multiple': 'mean'})
+        st.table(efficiency)
+    

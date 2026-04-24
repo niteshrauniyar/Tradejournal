@@ -236,6 +236,26 @@ elif menu == "📅 Trade Vault":
     st.title("Trade Vault")
     df = load_trades()
     
-    if not df.empty:
+    if not df.empty:  # <--- The colon and .empty go here!
+        # Display latest trades in expanders so we can see screenshots
+        for _, row in df.sort_values("trade_date", ascending=False).iterrows():
+            color = "🟢" if row['pnl'] > 0 else "🔴"
+            with st.expander(f"{color} {row['trade_date'].strftime('%Y-%m-%d')} | {row['symbol']} {row['direction']} | PnL: ${row['pnl']:.2f} | Score: {row['rule_score']:.0f}%"):
+                sc1, sc2 = st.columns([2, 1])
+                with sc1:
+                    st.markdown(f"**Setup:** {row['setup']} | **R-Multiple:** {row['r_multiple']:.2f}R")
+                    st.markdown(f"**Entry:** {row['entry']} | **Exit:** {row['exit']} | **Stop:** {row['stop_loss']}")
+                    st.markdown(f"**Notes:** {row['notes']}")
+                with sc2:
+                    if row['screenshot']:
+                        try:
+                            # Decode and display image
+                            img_data = base64.b64decode(row['screenshot'])
+                            st.image(img_data, caption="Execution Chart", use_container_width=True)
+                        except:
+                            st.error("Image decode failed.")
+                    else:
+                        st.info("No screenshot uploaded.")
+    else:
+        st.warning("No trades in the vault.")
         
-    
